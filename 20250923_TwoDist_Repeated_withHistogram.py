@@ -13,6 +13,9 @@ N_TRIALS = 100        # Number of sampling trials to repeat
 OUTLIER_MAGNITUDE = 10 # Magnitude of outliers
 ERROR_STD = 0.5       # Standard deviation of the data noise
 
+# Error variance ratio for Deming Regression: σ²_y / σ²_x
+ERROR_VAR_RATIO = 1.0  # 1.0 means equal variance (Orthogonal Regression)
+
 def passing_bablok_manual(x, y):
     """
     Calculates Passing-Bablok regression using only Numpy.
@@ -100,9 +103,14 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
     """
     Runs the 100-trial simulation and plots the regression results.
     """
-    results = {'ols': [], 'gmr': [], 'ortho': [], 'pb': []}
+    results = {'ols': [], 'gmr': [], 'deming': [], 'pb': []}
     x_min, x_max = np.percentile(x_total, [1, 99])
     x_fit = np.linspace(x_min, x_max, 100)
+    
+    # For scipy.odr: wd = 1/σ²_x, we = 1/σ²_y
+    # If σ²_y / σ²_x = ERROR_VAR_RATIO
+    SIGMA_X_SQUARED = 1.0
+    SIGMA_Y_SQUARED = ERROR_VAR_RATIO * SIGMA_X_SQUARED
 
     print(f"\nRunning {N_TRIALS} regression trials for {dist_name} data...")
     for i in range(N_TRIALS):
@@ -120,11 +128,14 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
         gmr_intercept = np.mean(y_sample) - gmr_slope * np.mean(x_sample)
         results['gmr'].append(gmr_slope * x_fit + gmr_intercept)
         
+        # Deming Regression with explicit error variance ratio
+        # wd = weight for x-direction = 1/σ²_x
+        # we = weight for y-direction = 1/σ²_y
         linear_model = Model(lambda p, x: p[0] * x + p[1])
-        data = Data(x_sample, y_sample)
-        odr_run = ODR(data, linear_model, beta0=[1.0, 0.0]).run()
-        ortho_slope, ortho_intercept = odr_run.beta
-        results['ortho'].append(ortho_slope * x_fit + ortho_intercept)
+        data_deming = Data(x_sample, y_sample, wd=1/SIGMA_X_SQUARED, we=1/SIGMA_Y_SQUARED)
+        odr_run = ODR(data_deming, linear_model, beta0=[1.0, 0.0]).run()
+        deming_slope, deming_intercept = odr_run.beta
+        results['deming'].append(deming_slope * x_fit + deming_intercept)
 
         pb_res = passing_bablok_manual(x_sample, y_sample)
         pb_slope, pb_intercept = pb_res['slope'], pb_res['intercept']
@@ -135,7 +146,7 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
     plot_titles = {
         'ols': 'Ordinary Least Squares',
         'gmr': 'Geometric Mean Regression',
-        'ortho': 'Orthogonal / Deming Regression',
+        'deming': f'Orthogonal / Deming Regression (λ = {ERROR_VAR_RATIO})',
         'pb': 'Passing-Bablok Regression'
     }
 
