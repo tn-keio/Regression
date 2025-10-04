@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.odr import ODR, Model, Data
+from scipy.stats import kendalltau
 from sklearn.linear_model import LinearRegression
 
 # Matplotlib setting to prevent garbled text for the minus sign.
@@ -83,13 +84,16 @@ def plot_initial_data(x_total, y_total, dist_name):
     Plots the scatter plot and histograms for the entire dataset.
     """
     print(f"\nPlotting initial distribution for {dist_name} data...")
+    
+    # Calculate Kendall's tau for the full dataset
+    tau_full, _ = kendalltau(x_total, y_total)
 
     plt.figure(figsize=(8, 8))
     plt.scatter(x_total, y_total, alpha=0.2, s=10)
     lim_min = min(np.min(x_total), np.min(y_total))
     lim_max = max(np.max(x_total), np.max(y_total))
     plt.plot([lim_min, lim_max], [lim_min, lim_max], 'r--', label='Y = X')
-    plt.title(f'Scatter Plot of Full Dataset ({dist_name}, Variance-Aware Outliers)', fontsize=16)
+    plt.title(f'Scatter Plot of Full Dataset ({dist_name}, Variance-Aware Outliers)\nKendall\'s τ = {tau_full:.4f}', fontsize=16)
     plt.xlabel('X', fontsize=12)
     plt.ylabel('Y', fontsize=12)
     plt.grid(True)
@@ -115,8 +119,12 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
     Runs the 100-trial simulation and plots the regression results.
     """
     results = {'ols': [], 'gmr': [], 'deming': [], 'pb': []}
+    kendall_taus = []  # Store Kendall's tau for each trial
     x_min, x_max = np.percentile(x_total, [1, 99])
     x_fit = np.linspace(x_min, x_max, 100)
+    
+    # Calculate Kendall's tau for the full dataset
+    tau_full, _ = kendalltau(x_total, y_total)
     
     # Error variance ratio: σ²_y / σ²_x
     ERROR_VAR_RATIO = 0.9
@@ -129,6 +137,10 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
     for i in range(N_TRIALS):
         sample_indices = np.random.choice(N_TOTAL, N_SAMPLE, replace=False)
         x_sample, y_sample = x_total[sample_indices], y_total[sample_indices]
+        
+        # Calculate Kendall's tau for this sample
+        tau_sample, _ = kendalltau(x_sample, y_sample)
+        kendall_taus.append(tau_sample)
 
         # Regression calculations
         ols_model = LinearRegression().fit(x_sample.reshape(-1, 1), y_sample)
@@ -154,7 +166,13 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
         pb_slope, pb_intercept = pb_res['slope'], pb_res['intercept']
         results['pb'].append(pb_slope * x_fit + pb_intercept)
     
+    # Calculate min and max Kendall's tau from samples
+    tau_min = np.min(kendall_taus)
+    tau_max = np.max(kendall_taus)
+    
     print("Plotting regression results...")
+    print(f"Full dataset Kendall's τ: {tau_full:.4f}")
+    print(f"Sample Kendall's τ range: {tau_min:.4f} to {tau_max:.4f}")
     
     plot_titles = {
         'ols': 'Ordinary Least Squares',
@@ -169,7 +187,12 @@ def run_simulation_and_plot(x_total, y_total, dist_name):
             plt.plot(x_fit, line, color='blue', alpha=0.1)
         
         plt.plot(x_fit, x_fit, 'r--', linewidth=2, label='Y = X (Ideal Line)')
-        plt.title(f'{plot_titles[method]} on {dist_name} Data (100 Trials, Heteroscedastic)', fontsize=16)
+        
+        # Add Kendall's tau information to the title
+        title_text = f'{plot_titles[method]} on {dist_name} Data (100 Trials, Heteroscedastic)\n'
+        title_text += f'Full Dataset: τ = {tau_full:.4f} | Sample Range: τ = {tau_min:.4f} to {tau_max:.4f}'
+        plt.title(title_text, fontsize=14)
+        
         plt.xlabel('X', fontsize=12)
         plt.ylabel('Y', fontsize=12)
         plt.grid(True)
